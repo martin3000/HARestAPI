@@ -68,8 +68,12 @@ void HARestAPI::setFingerPrint(String FingerPrint) {
 	_fingerprint = FingerPrint;
 }
 
-String HARestAPI::sendGetHA(String URL, String message) {
+int HARestAPI::sendGetHA(String URL, String message, char payload[]) {
   String posturl, replystr;
+  int lengthValue=-1;
+  int status=-1;
+  int payloadSize=0;
+  //char payload[500];
   
   if(_debug) { Serial.print("Requesting URL: "); Serial.println(URL); }
 
@@ -93,7 +97,7 @@ String HARestAPI::sendGetHA(String URL, String message) {
     }
     if (!wsclient->connect(_serverip.c_str(), _port)) {
       if(_debug) Serial.println("connection failed");
-      return "Connection Failed";
+      return 0;
     }
     if(_debug & _fingerprint.length() > 0 ) {
       if (wsclient->verify(_fingerprint.c_str(), _serverip.c_str())) {
@@ -113,33 +117,59 @@ String HARestAPI::sendGetHA(String URL, String message) {
     if (wsclient->available()) { wsclient->flush(); wsclient->stop(); }
 	
   } else {
-	wclient->setTimeout(1000);
+	  wclient->setTimeout(60);
     if(_debug){
       Serial.print("Connecting to ");
       Serial.println(_serverip);
     }
     if (!wclient->connect(_serverip.c_str(), _port)) {
       if(_debug) Serial.println("connection failed");
-      return "Connection Failed";
+      return 0;
     }
     wclient->print(posturl);
     if(_debug) Serial.println("HTTP HA Request Sent!");
+
+    if (wclient->connected()) Serial.println("connected");
+    if (wclient->available()) Serial.println("available");
+    
     while (wclient->connected()) {
-      String header = wclient->readStringUntil('\n');
-      if (header == "\r") break; // headers received
+//    while(wclient->available()) {
+//      String header = wclient->readStringUntil('\n');
+//      if (header == "\r") break; // headers received
+//jms:
+      String header = wclient->readStringUntil('\r\n');
+      Serial.println(header);
+      if (header.startsWith("HTTP/1.1 200 OK")) {
+        status=0;
+      } else if (header.startsWith("Content-Length:")) {
+        lengthValue = header.substring(16).toInt();
+        Serial.print("content-len:");
+        Serial.println(lengthValue);
+      }
+      if (header[0] == '\r') break; // headers received
     }
-	replystr = wclient->readString();
+
+    if (lengthValue>500) Serial.println("payload>500 bytes, buffer too small.");
+    if (lengthValue>0 && lengthValue<500) {
+      payloadSize = wclient->readBytes(payload,lengthValue);
+    }
+    /*
+    Serial.println("vor read");
+	  replystr = wclient->readString();
+    Serial.println("nach read");
+    */
     if (wclient->available()) { wclient->flush(); wclient->stop(); }
   }
   
   if(_debug) {
-    Serial.println("reply was:");
-    Serial.println("==========");
-    Serial.println(replystr);
-    Serial.println("==========");
+    Serial.print("Status:"); Serial.println(status);
+    if (payloadSize>0) {
+      Serial.print("reply was:"); Serial.println(payload);
+    }
     Serial.println("closing connection");
   }
-  return replystr;
+  if (payloadSize>0) return payloadSize;
+  else return 0;
 }
 
 bool HARestAPI::sendPostHA(String URL, String message) {
